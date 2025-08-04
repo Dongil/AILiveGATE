@@ -36,13 +36,13 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 # API 
 1. 화자 분리
-호출 : http://127.0.0.1:5001/speaker?path=D:\test.mp4&key=11111&model=large-v3
 
-리턴 : http://127.0.0.1/speaker_sucess.php?key=11111&path=D%3A%5Ctest.txt
-* d:\test.vtt 동시 생성 (<speaker_00> 추가된 WebVTT파일)
+호출 : http://127.0.0.1:5001/speaker?path=D:\test.mp4&key=11111&model=large-v3  
+리턴 : http://127.0.0.1/speaker_sucess.php?key=11111&path=D%3A%5Ctest.txt  
+      -d:\test.vtt 동시 생성 (<speaker_00> 추가된 WebVTT파일)
 
 2. MP4 -> mp3, wav 오디오 파일 생성
-호출 : http://127.0.0.1:5001/audio_convert?path=D:\test.mp4&key=1111&type=wav
 
-리턴 : http://127.0.0.1/audio_sucess.php?key=11111&path=D%3A%5Ctest.txt&type=wav
-* Type : mp3, wav  (Clova Speech API 연동 적합한 mp3 코덱, google STT 연동 적합한 wav 코덱)
+호출 : http://127.0.0.1:5001/audio_convert?path=D:\test.mp4&key=1111&type=wav  
+리턴 : http://127.0.0.1/audio_sucess.php?key=11111&path=D%3A%5Ctest.txt&type=wav  
+      -Type : mp3, wav  (Clova Speech API 연동 적합한 mp3 코덱, google STT 연동 적합한 wav 코덱)
