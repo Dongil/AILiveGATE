@@ -8,7 +8,7 @@ import uvicorn
 
 # 모듈화된 파일에서 필요한 것들 import
 from config import DEFAULT_MODEL_SIZE, DEFAULT_DEVICE, DEFAULT_COMPUTE_TYPE
-from processor.tasks import process_video_and_callback, load_all_models
+from processor.tasks import process_video_and_callback, convert_video_to_audio, load_all_models
 
 # --- <<<--- 1. 작업 큐와 워커 설정 ---
 job_queue = asyncio.Queue() # 비동기 작업 큐 생성
@@ -25,13 +25,23 @@ async def worker():
             # 큐에서 작업 가져오기 (작업이 없으면 여기서 대기)
             task_details = await job_queue.get()
             
+            # --- <<<--- 2. 작업 종류에 따른 분기 처리 ---
+            task_name = task_details.get("task_name")
+            task_params = task_details.get("params", {})
+
             # process_video_and_callback 함수는 동기 함수이므로,
             # asyncio 이벤트 루프를 막지 않도록 별도 스레드에서 실행
-            await asyncio.to_thread(
-                process_video_and_callback,
-                **task_details
-            )
             
+            if task_name == "diarize":
+                # 기존 whisperx 작업
+                await asyncio.to_thread(process_video_and_callback, **task_params)
+            elif task_name == "convert":
+                # 새로운 오디오 변환 작업
+                await asyncio.to_thread(convert_video_to_audio, **task_params)
+            else:
+                print(f"알 수 없는 작업 타입입니다: {task_name}")
+            # --- 여기까지 ---
+
             # 작업이 끝났음을 큐에 알림
             job_queue.task_done()
         except Exception as e:
@@ -60,6 +70,35 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan) # FastAPI 앱 생성 시 lifespan을 등록
 
+# --- <<<--- 3. 새로운 라우터 추가 ---
+@app.get("/audio_convert")
+async def create_audio_convert_task(path: str, key: str, type: str):
+    """영상 파일을 오디오로 변환하는 작업을 큐에 추가"""
+    video_path = Path(path)
+    if not video_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Video file not found at: {path}")
+
+    # 지원하는 타입인지 확인
+    if type.lower() not in ['mp3', 'wav']:
+        raise HTTPException(status_code=400, detail="Invalid type. 'type' must be 'mp3' or 'wav'.")
+
+    task_details = {
+        "task_name": "convert",
+        "params": {
+            "video_path": str(video_path),
+            "key": key,
+            "output_type": type.lower()
+        }
+    }
+    await job_queue.put(task_details)
+
+    return {
+        "status": "queued",
+        "message": f"오디오 변환 작업이 대기열에 추가되었습니다. (Key: {key})",
+        "queue_size": job_queue.qsize()
+    }
+# --- 여기까지 ---
+
 @app.get("/speaker")
 async def create_speaker_task(
     path: str,
@@ -72,17 +111,18 @@ async def create_speaker_task(
     video_path = Path(path)
     if not video_path.is_file():
         raise HTTPException(status_code=404, detail=f"Video file not found at: {path}")
-
-    output_txt_path = video_path.parent / f"{video_path.stem}_speaker.txt"
     
     # --- <<<--- 3. 작업을 큐에 넣기 ---
     # 백그라운드 태스크를 직접 실행하는 대신, 작업 정보를 딕셔너리로 만들어 큐에 넣는다.
     task_details = {
-        "video_path": str(video_path),
-        "key": key,
-        "model_name": model,
-        "device": DEFAULT_DEVICE,
-        "compute_type": DEFAULT_COMPUTE_TYPE
+        "task_name": "diarize", # 작업 타입 명시
+        "params" : {        
+            "video_path": str(video_path),
+            "key": key,
+            "model_name": model,
+            "device": DEFAULT_DEVICE,
+            "compute_type": DEFAULT_COMPUTE_TYPE
+        }
     }
     await job_queue.put(task_details)
     # --- 여기까지 ---
@@ -90,9 +130,8 @@ async def create_speaker_task(
     # 클라이언트(CMS)에는 즉시 응답
     return {
         "status": "queued",
-        "message": f"작업이 대기열에 추가되었습니다. (Key: {key})",
+        "message": f"화자분석 작업이 대기열에 추가되었습니다. (Key: {key})",
         "queue_size": job_queue.qsize(), # 현재 대기 중인 작업 수
-        "output_path": str(output_txt_path)
     }
 
 @app.get("/")

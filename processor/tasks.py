@@ -8,8 +8,8 @@ from pathlib import Path
 from whisperx.diarize import DiarizationPipeline
 
 # 프로젝트 루트의 config.py에서 설정값 가져오기
-from config import CALLBACK_BASE_URL, MERGE_THRESHOLD_SECONDS, SHORT_SEGMENT_WORD_COUNT, HF_TOKEN
-
+from config import SPEAKER_CALLBACK_URL, MERGE_THRESHOLD_SECONDS, SHORT_SEGMENT_WORD_COUNT, HF_TOKEN, AUDIO_CALLBACK_URL
+                    
 # --- <<<--- 1. 모델을 담을 전역 변수 선언 ---
 MODELS = {
     "asr": None,
@@ -71,6 +71,68 @@ def generate_vtt_content(result: dict) -> str:
         lines.append("") # 각 큐 사이에 빈 줄 추가
 
     return "\n".join(lines)
+# --- 여기까지 ---
+
+# --- <<<--- 1. 새로운 오디오 변환 작업 함수 추가 ---
+def convert_video_to_audio(
+    video_path: str,
+    key: str,
+    output_type: str # 'mp3' or 'wav'
+):
+    """
+    영상 파일을 지정된 오디오 포맷으로 변환하는 태스크.
+    """
+    print(f"--- 오디오 변환 작업 시작 (Key: {key}) ---")
+    print(f"영상 파일: {video_path}, 변환 타입: {output_type}")
+    
+    # 출력 파일 경로 생성 (예: D:\test.mp3)
+    output_audio_path = Path(video_path).with_suffix(f'.{output_type}')
+
+    try:
+        if output_type == 'mp3':
+            # Clova Speech용 MP3 설정
+            ffmpeg.input(video_path).output(
+                str(output_audio_path),
+                acodec='libmp3lame', # MP3 인코더
+                audio_bitrate='192k',
+                ac=1, # Mono 채널
+                ar='16000' # 16kHz 샘플링 레이트
+            ).run(overwrite_output=True, quiet=True)
+        elif output_type == 'wav':
+            # Google Speech-to-Text용 WAV 설정
+            ffmpeg.input(video_path).output(
+                str(output_audio_path),
+                acodec='pcm_s16le', # 16-bit PCM 인코딩
+                ac=1, # Mono 채널
+                ar='16000' # 16kHz 샘플링 레이트
+            ).run(overwrite_output=True, quiet=True)
+        else:
+            raise ValueError(f"지원하지 않는 오디오 타입입니다: {output_type}")
+            
+        print(f"오디오 파일 변환 완료: {output_audio_path}")
+        
+        # 완료 콜백 전송
+        send_completion_callback(
+            url=AUDIO_CALLBACK_URL,
+            success=True,
+            key=key,
+            path=str(output_audio_path),
+            extra_params={'type': output_type}
+        )
+            
+    except Exception as e:
+        error_message = f"오디오 변환 작업 실패 (Key: {key}): {e}"
+        print(error_message)
+        send_completion_callback(
+            url=AUDIO_CALLBACK_URL,
+            success=False,
+            key=key,
+            path=str(output_audio_path),
+            error=str(e),
+            extra_params={'type': output_type}
+        )
+    finally:
+        print(f"--- 오디오 변환 작업 종료 (Key: {key}) ---")
 # --- 여기까지 ---
 
 def process_video_and_callback(
@@ -156,7 +218,12 @@ def process_video_and_callback(
         # --- 여기까지 ---
 
         # --- 4. 콜백 URL 호출 ---
-        send_callback(True, key, str(output_txt_path))
+        send_completion_callback(
+            url=SPEAKER_CALLBACK_URL,
+            success=True, 
+            key=key, 
+            path=str(output_txt_path)
+        )
 
     except Exception as e:
         error_message = f"작업 실패 (Key: {key}): {e}"
@@ -165,7 +232,13 @@ def process_video_and_callback(
         # 실패 내용을 파일에 쓸 수도 있음
         with open(output_txt_path, 'w', encoding='utf-8') as f:
             f.write(error_message)
-        send_callback(False, key, str(output_txt_path), str(e))
+        send_completion_callback(
+            url=SPEAKER_CALLBACK_URL,
+            success=False, 
+            key=key, 
+            path=str(output_txt_path), 
+            error=str(e)
+        )
     finally:
         # 임시 오디오 파일 삭제
         if 'audio_path_obj' in locals() and audio_path_obj.exists():
@@ -248,20 +321,18 @@ def generate_formatted_transcript(result: dict) -> str:
 
     return "".join(output_lines)
 
-def send_callback(success: bool, key: str, path: str, error: str = ""):
-    """CMS에 작업 완료/실패를 알리는 콜백 함수"""
-    params = {
-        'key': key,
-        'path': path,
-    }
+def send_completion_callback(url: str, success: bool, key: str, path: str, error: str = "", extra_params: dict = None):
+    """CMS에 작업 완료/실패를 알리는 범용 콜백 함수"""
+    params = {'key': key, 'path': path}
     if not success:
-        # 실패 시 에러 메시지를 추가할 수 있음
         params['error'] = error
+    if extra_params:
+        params.update(extra_params) # 추가 파라미터 병합 (type=mp3 등)
 
     try:
-        print(f"콜백 전송 시도: {CALLBACK_BASE_URL} with params {params}")
-        response = requests.get(CALLBACK_BASE_URL, params=params, timeout=10)        
-        response.raise_for_status() # 200번대 응답이 아니면 에러 발생
+        print(f"콜백 전송 시도: {url} with params {params}")
+        response = requests.get(url, params=params, timeout=10)        
+        response.raise_for_status()
         print(f"콜백 전송 성공 (Key: {key})")
     except requests.RequestException as e:
         print(f"콜백 전송 실패 (Key: {key}): {e}")
