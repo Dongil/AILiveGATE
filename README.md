@@ -41,4 +41,16 @@ pip install --upgrade --force-reinstall "ctranslate2[cuda]"
 
 # API 
 호출 : http://127.0.0.1:5001/speaker?path=D:\test.mp4&key=11111&model=large-v3
-리턴 : http://127.0.0.1/speaker_sucess.php/speaker_sucess.php?key=11111&path=D%3A%5Ctest_speaker.txt  
+리턴 : http://127.0.0.1/speaker_sucess.php/speaker_sucess.php?key=11111&path=D%3A%5Ctest_speaker.txt  # AILiveGATE
+
+echo "# AILiveGATE" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/Dongil/AILiveGATE.git
+git push -u origin main
+
+git remote add origin https://github.com/Dongil/AILiveGATE.git
+git branch -M main
+git push -u origin main
