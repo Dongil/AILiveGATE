@@ -150,8 +150,8 @@ def process_video_and_callback(
     print(f"모델: {model_name}, 장치: {device}, 타입: {compute_type}")
 
     # --- <<<--- 출력 파일 경로 설정 추가 ---
-    output_txt_path = Path(video_path).with_suffix('.txt')
-    output_vtt_path = Path(video_path).with_suffix('.vtt')
+    output_txt_path = Path(video_path).with_suffix('_whisper.txt')
+    output_vtt_path = Path(video_path).with_suffix('_whisper.vtt')
 
     try:
         # --- 1. 오디오 추출 ---
