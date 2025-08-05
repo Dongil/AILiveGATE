@@ -150,8 +150,10 @@ def process_video_and_callback(
     print(f"모델: {model_name}, 장치: {device}, 타입: {compute_type}")
 
     # --- <<<--- 출력 파일 경로 설정 추가 ---
-    output_txt_path = Path(video_path).with_suffix('_whisper.txt')
-    output_vtt_path = Path(video_path).with_suffix('_whisper.vtt')
+    output_path = Path(video_path)
+    
+    output_txt_path = output_path.parent / f"{output_path.stem}_whisper.txt"    
+    output_vtt_path = output_path.parent / f"{output_path.stem}_whisper.vtt"
 
     try:
         # --- 1. 오디오 추출 ---
@@ -195,8 +197,8 @@ def process_video_and_callback(
 
         # 2-3. Diarize
         print("   - 화자 분리 진행 중...")
-        diarize_segments = diarize_model(audio) # 화자 수 힌트 제공 가능
-        # diarize_segments = diarize_model(audio, min_speakers=2, max_speakers=15)
+        # diarize_segments = diarize_model(audio) # 화자 수 힌트 제공 가능
+        diarize_segments = diarize_model(audio, min_speakers=2, max_speakers=25)
         result = whisperx.assign_word_speakers(diarize_segments, result)
         print("화자 분리 완료.")
         
