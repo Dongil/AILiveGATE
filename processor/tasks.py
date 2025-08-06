@@ -6,6 +6,7 @@ import ffmpeg
 import requests
 from pathlib import Path
 from whisperx.diarize import DiarizationPipeline
+import traceback
 
 # 프로젝트 루트의 config.py에서 설정값 가져오기
 from config import SPEAKER_CALLBACK_URL, MERGE_THRESHOLD_SECONDS, SHORT_SEGMENT_WORD_COUNT, HF_TOKEN, AUDIO_CALLBACK_URL
@@ -16,14 +17,13 @@ MODELS = {
     "align": None,
     "diarize": None
 }
-# --- 여기까지 ---
 
 def load_all_models(model_name="large-v3", device="cuda", compute_type="float16"):
     """
     서버 시작 시 모든 AI 모델을 한 번만 로드하여 전역 변수에 저장합니다.
     """
-    print("--- 모든 AI 모델 로딩 시작 ---")
-    
+    print("--- 공유 AI 모델 로딩 시작 ---")
+ 
     # 1. ASR 모델 로드
     print(f"ASR 모델({model_name}) 로딩 중...")
     MODELS["asr"] = whisperx.load_model(model_name, device, compute_type=compute_type)
@@ -140,14 +140,17 @@ def process_video_and_callback(
     key: str,
     model_name: str,
     device: str,
-    compute_type: str
+    compute_type: str,
+    # --- <<<--- 튜닝 파라미터를 받을 딕셔너리 추가 ---
+    diarization_params: dict     # diarization_params는 {'threshold': 0.55, 'min_duration_off': 0.8} 형태
 ):
     """
-    영상 파일을 받아 회의록과 VTT 파일을 생성하고, 콜백을 호출하는 메인 태스크.
+    영상 파일을 받아 회의록과 VTT 파일을 생성하는 태스크 (튜닝 파라미터 적용)
     """
     print(f"--- 작업 시작 (Key: {key}) ---")
     print(f"영상 파일: {video_path}")
     print(f"모델: {model_name}, 장치: {device}, 타입: {compute_type}")
+    print(f"화자 분리 파라미터: {diarization_params}")
 
     # --- <<<--- 출력 파일 경로 설정 추가 ---
     output_path = Path(video_path)
@@ -197,11 +200,26 @@ def process_video_and_callback(
 
         # 2-3. Diarize
         print("   - 화자 분리 진행 중...")
-        # diarize_segments = diarize_model(audio) # 화자 수 힌트 제공 가능
-        diarize_segments = diarize_model(audio, min_speakers=2, max_speakers=25)
+        print(f"  - 파라미터 적용: {diarization_params}")
+         
+        # 2-3-1. 파이프라인 내부 속성 값을 직접 변경합니다.
+        #    'pipeline'이 아니라 'model' 속성을 통해 pyannote 객체에 접근합니다.
+        if 'threshold' in diarization_params:
+            diarize_model.model.clustering.threshold = diarization_params['threshold']
+        if 'min_duration_off' in diarization_params:
+            diarize_model.model.segmentation.min_duration_off = diarization_params['min_duration_off']
+
+        # 2-3-2. 파라미터가 수정된 모델로 화자 분리를 실행합니다.
+        diarize_segments = diarize_model(
+            audio, 
+            min_speakers=diarization_params['min_speakers'],
+            max_speakers=diarization_params['max_speakers']
+        )
+        
+        # 2-3-3. assign_word_speakers 호출
         result = whisperx.assign_word_speakers(diarize_segments, result)
         print("화자 분리 완료.")
-        
+                
         # --- 3. 후처리 및 파일 저장 ---
         print("3. 후처리 및 파일 저장 중...")
         
@@ -228,6 +246,17 @@ def process_video_and_callback(
         )
 
     except Exception as e:
+        # --- <<<--- 이 부분을 수정하여 상세한 에러 로그를 얻습니다. ---
+        # 1. 전체 에러 트레이스백을 콘솔에 출력
+        print("---!!! 작업 중 심각한 오류 발생 !!!---")
+        traceback.print_exc()
+        print("------------------------------------")
+        
+        # 2. 에러 메시지를 더 상세하게 생성
+        error_message = f"작업 실패 (Key: {key}): {type(e).__name__} - {e}"
+        print(error_message)
+        # --- 여기까지 ---
+
         error_message = f"작업 실패 (Key: {key}): {e}"
         print(error_message)
         # 실패 시에도 콜백을 보내서 CMS가 상태를 알 수 있게 함 (선택적)
@@ -249,7 +278,6 @@ def process_video_and_callback(
 
 
 def generate_formatted_transcript(result: dict) -> str:
-    # <<<--- 이 부분이 누락되었습니다. ---
     # 1. 초기 세그먼트 정리 및 형식 변환
     processed_segments = []
     if "segments" in result and result["segments"]:

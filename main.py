@@ -2,12 +2,17 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI,HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pathlib import Path
 import uvicorn
 
 # 모듈화된 파일에서 필요한 것들 import
-from config import DEFAULT_MODEL_SIZE, DEFAULT_DEVICE, DEFAULT_COMPUTE_TYPE
+from config import (
+    DEFAULT_MODEL_SIZE, DEFAULT_DEVICE, DEFAULT_COMPUTE_TYPE,
+    DEFAULT_DIARIZATION_THRESHOLD, DEFAULT_MIN_DURATION_OFF,
+    DEFAULT_MIN_SPEAKERS, DEFAULT_MAX_SPEAKERS
+)
+
 from processor.tasks import process_video_and_callback, convert_video_to_audio, load_all_models
 
 # --- <<<--- 1. 작업 큐와 워커 설정 ---
@@ -40,7 +45,6 @@ async def worker():
                 await asyncio.to_thread(convert_video_to_audio, **task_params)
             else:
                 print(f"알 수 없는 작업 타입입니다: {task_name}")
-            # --- 여기까지 ---
 
             # 작업이 끝났음을 큐에 알림
             job_queue.task_done()
@@ -97,13 +101,29 @@ async def create_audio_convert_task(path: str, key: str, type: str):
         "message": f"오디오 변환 작업이 대기열에 추가되었습니다. (Key: {key})",
         "queue_size": job_queue.qsize()
     }
-# --- 여기까지 ---
 
 @app.get("/speaker")
 async def create_speaker_task(
     path: str,
     key: str,
-    model: str = DEFAULT_MODEL_SIZE
+    model: str = DEFAULT_MODEL_SIZE, 
+    # 선택적 쿼리 파라미터 추가
+    threshold: float = Query(
+        default=DEFAULT_DIARIZATION_THRESHOLD,
+        description="Diarization clustering threshold (0.0 to 2.0). Lower is stricter."
+    ),
+    min_duration_off: float = Query(
+        default=DEFAULT_MIN_DURATION_OFF,
+        description="Minimum duration of non-speech segment in seconds."
+    ),
+    min_speakers: int = Query(
+        default=DEFAULT_MIN_SPEAKERS,
+        description="Approximate minimum number of participants attending the meeting. (2 to 25)"
+    ),
+    max_speakers: int = Query(
+        default=DEFAULT_MAX_SPEAKERS,
+        description="Approximate maximum number of participants attending the meeting. (2 to 25)"
+    )
 ):
     """
     회의록 생성 작업을 큐에 추가하는 API 엔드포인트
@@ -121,16 +141,23 @@ async def create_speaker_task(
             "key": key,
             "model_name": model,
             "device": DEFAULT_DEVICE,
-            "compute_type": DEFAULT_COMPUTE_TYPE
+            "compute_type": DEFAULT_COMPUTE_TYPE,
+            # 받은 파라미터를 params 딕셔너리에 추가
+            "diarization_params": {
+                "threshold": threshold,
+                "min_duration_off": min_duration_off,
+                "min_speakers" : min_speakers,
+                "max_speakers" : max_speakers
+            }
         }
     }
     await job_queue.put(task_details)
-    # --- 여기까지 ---
 
     # 클라이언트(CMS)에는 즉시 응답
     return {
         "status": "queued",
         "message": f"화자분석 작업이 대기열에 추가되었습니다. (Key: {key})",
+        "params_used": task_details["params"], # 어떤 파라미터가 사용되었는지 응답에 포함
         "queue_size": job_queue.qsize(), # 현재 대기 중인 작업 수
     }
 
