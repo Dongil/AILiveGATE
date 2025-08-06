@@ -70,3 +70,6 @@ venv.bak/
 # secrets - !!중요!!
 *.env
 config.ini
+
+#작업/업로드
+uploads/

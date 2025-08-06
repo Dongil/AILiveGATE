@@ -3,6 +3,8 @@ uvicorn[standard]
 requests
 python-dotenv
 ffmpeg-python
+jinja2             # (HTML 템플릿용 추가)
+python-multipart   # (파일 업로드 폼 데이터 처리용 추가)
 # whisperx는 git으로 설치했으므로, 직접 명시하거나 설치 스크립트에 남깁니다.
 # git+https://github.com/m-bain/whisperX.git
 # 아래 패키지들은 whisperx가 설치할 때 자동으로 설치됩니다.

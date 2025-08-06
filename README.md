@@ -1,19 +1,18 @@
 # 프로젝트 구성
-/project/
-
-├── .venv/                     # 파이썬 가상 환경
-
-├── main.py                    # FastAPI 서버 실행 파일
-
-├── requirements.txt           # 프로젝트 의존성 목록
-
-├── config.py                  # 설정 파일 (콜백 URL, 경로 등)
-
-└── processor/
-
-    ├── __init__.py
-
-    └── tasks.py               # 실제 회의록 생성 로직이 담긴 파일
+/project/  
+├── .venv/                     # 파이썬 가상 환경  
+├── main.py                    # FastAPI 서버 실행 파일  
+├── requirements.txt           # 프로젝트 의존성 목록  
+├── config.py                  # 설정 파일 (콜백 URL, 경로 등)  
+├── processor/  
+│   ├── __init__.py  
+│   └── tasks.py  
+├── static/                    # (새 디렉토리)  
+│   ├── style.css              # (새 파일)  
+│   └── script.js              # (새 파일)  
+├── templates/                 # (새 디렉토리)  
+│   └── index.html             # (새 파일)  
+└── uploads/                   # (새 디렉토리 - 업로드된 파일 임시 저장)  
 
 # 의존성 설치
 pip install -r requirements.txt
