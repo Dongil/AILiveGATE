@@ -37,7 +37,7 @@ def load_all_models(model_name="large-v3", device="cuda", compute_type="float16"
     # 3. Diarization 모델 로드
     print("Diarization 모델 로딩 중...")
     # hf_token은 huggingface-cli login을 통해 자동으로 사용됩니다.
-    MODELS["diarize"] = DiarizationPipeline(use_auth_token=HF_TOKEN, device=device)
+    MODELS["diarize"] = DiarizationPipeline("pyannote/speaker-diarization-3.1", use_auth_token=HF_TOKEN, device=device)
     
     print("--- 모든 AI 모델 로딩 완료 ---")
 
