@@ -10,7 +10,8 @@ import traceback
 
 # 프로젝트 루트의 config.py에서 설정값 가져오기
 from config import SPEAKER_CALLBACK_URL, MERGE_THRESHOLD_SECONDS, SHORT_SEGMENT_WORD_COUNT, HF_TOKEN, AUDIO_CALLBACK_URL
-                    
+from app_state import job_results
+
 # --- <<<--- 1. 모델을 담을 전역 변수 선언 ---
 MODELS = {
     "asr": None,
@@ -138,6 +139,7 @@ def convert_video_to_audio(
 def process_video_and_callback(
     video_path: str,
     key: str,
+    save_to_file: bool,
     model_name: str,
     device: str,
     compute_type: str,
@@ -152,11 +154,11 @@ def process_video_and_callback(
     print(f"모델: {model_name}, 장치: {device}, 타입: {compute_type}")
     print(f"화자 분리 파라미터: {diarization_params}")
 
-    # --- <<<--- 출력 파일 경로 설정 추가 ---
-    output_path = Path(video_path)
+    # key 값을 파일명으로 사용
+    output_path = Path(video_path).parent / key
     
-    output_txt_path = output_path.parent / f"{output_path.stem}_whisper.txt"    
-    output_vtt_path = output_path.parent / f"{output_path.stem}_whisper.vtt"
+    output_txt_path = output_path.with_name(f"{output_path.name}_whisper.txt")
+    output_vtt_path = output_path.with_name(f"{output_path.name}_whisper.vtt")
 
     try:
         # --- 1. 오디오 추출 ---
@@ -223,27 +225,39 @@ def process_video_and_callback(
         # --- 3. 후처리 및 파일 저장 ---
         print("3. 후처리 및 파일 저장 중...")
         
-        # 3-1. 회의록 텍스트(.txt) 파일 생성
-        # (기존의 후처리 및 병합 로직은 그대로 사용)
         final_transcript = generate_formatted_transcript(result)
-        with open(output_txt_path, 'w', encoding='utf-8') as f:
-            f.write(final_transcript)
-        print(f"회의록 파일 저장 완료: {output_txt_path}")
-        
-        # 3-2. WebVTT(.vtt) 파일 생성
         vtt_content = generate_vtt_content(result)
-        with open(output_vtt_path, 'w', encoding='utf-8') as f:
-            f.write(vtt_content)
-        print(f"VTT 파일 저장 완료: {output_vtt_path}")
-        # --- 여기까지 ---
 
-        # --- 4. 콜백 URL 호출 ---
-        send_completion_callback(
-            url=SPEAKER_CALLBACK_URL,
-            success=True, 
-            key=key, 
-            path=str(output_txt_path)
-        )
+        if save_to_file:
+            # API 호출의 경우: 파일로 저장하고 콜백 전송
+            output_path = Path(video_path)
+            output_txt_path = output_path.parent / f"{output_path.stem}_whisper.txt"
+            output_vtt_path = output_path.parent / f"{output_path.stem}_whisper.vtt"
+
+            with open(output_txt_path, 'w', encoding='utf-8') as f:
+                f.write(final_transcript)
+            print(f"회의록 파일 저장 완료: {output_txt_path}")
+            
+            with open(output_vtt_path, 'w', encoding='utf-8') as f:
+                f.write(vtt_content)
+            print(f"VTT 파일 저장 완료: {output_vtt_path}")
+
+            send_completion_callback(
+                url=SPEAKER_CALLBACK_URL,
+                success=True, 
+                key=key, 
+                path=str(output_txt_path)
+            )
+        else:
+            # 웹 UI 호출의 경우: 인메모리 딕셔너리에 저장
+            job_results[key] = {
+                "status": "completed",
+                "data": {
+                    "txt": final_transcript,
+                    "vtt": vtt_content
+                }
+            }
+            print(f"작업 결과 메모리에 저장 완료 (Key: {key})")
 
     except Exception as e:
         # --- <<<--- 이 부분을 수정하여 상세한 에러 로그를 얻습니다. ---
@@ -255,28 +269,30 @@ def process_video_and_callback(
         # 2. 에러 메시지를 더 상세하게 생성
         error_message = f"작업 실패 (Key: {key}): {type(e).__name__} - {e}"
         print(error_message)
-        # --- 여기까지 ---
 
-        error_message = f"작업 실패 (Key: {key}): {e}"
-        print(error_message)
-        # 실패 시에도 콜백을 보내서 CMS가 상태를 알 수 있게 함 (선택적)
-        # 실패 내용을 파일에 쓸 수도 있음
-        with open(output_txt_path, 'w', encoding='utf-8') as f:
-            f.write(error_message)
-        send_completion_callback(
-            url=SPEAKER_CALLBACK_URL,
-            success=False, 
-            key=key, 
-            path=str(output_txt_path), 
-            error=str(e)
-        )
+        # --- <<<--- 이 부분 로직 수정 ---
+        if save_to_file:
+            # 파일 저장 모드에서 에러 발생 시에만 파일에 에러 내용 기록
+            # output_txt_path가 try 블록 초반에 정의되므로 사용 가능
+            with open(output_txt_path, 'w', encoding='utf-8') as f:
+                f.write(error_message)
+            
+            send_completion_callback(
+                url=SPEAKER_CALLBACK_URL,
+                success=False,
+                key=key,
+                path=str(output_txt_path),
+                error=str(e)
+            )
+        else:
+            # UI 모드에서는 job_results에 에러 상태 기록
+            job_results[key] = {"status": "failed", "data": error_message}
     finally:
         # 임시 오디오 파일 삭제
         if 'audio_path_obj' in locals() and audio_path_obj.exists():
             audio_path_obj.unlink()
         print(f"--- 작업 종료 (Key: {key}) ---")
-
-
+        
 def generate_formatted_transcript(result: dict) -> str:
     # 1. 초기 세그먼트 정리 및 형식 변환
     processed_segments = []

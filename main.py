@@ -1,8 +1,13 @@
 # /main.py
 
 import asyncio
+import uuid
+import shutil
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, File, UploadFile, Form, Request
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pathlib import Path
 import uvicorn
 
@@ -14,9 +19,8 @@ from config import (
 )
 
 from processor.tasks import process_video_and_callback, convert_video_to_audio, load_all_models
+from app_state import job_results, job_queue # <<<--- 여기서 큐와 결과 딕셔너리를 import
 
-# --- <<<--- 1. 작업 큐와 워커 설정 ---
-job_queue = asyncio.Queue() # 비동기 작업 큐 생성
 worker_running = True       # 워커의 실행 상태를 제어하기 위한 플래그
 worker_task = None          # 전역 변수로 선언
 
@@ -72,7 +76,18 @@ async def lifespan(app: FastAPI):
     if worker_task:
         worker_task.cancel()
 
+# --- FastAPI 설정 ---
 app = FastAPI(lifespan=lifespan) # FastAPI 앱 생성 시 lifespan을 등록
+
+# Static 파일 (css, js)을 위한 디렉토리 마운트
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# HTML 템플릿을 위한 디렉토리 설정
+templates = Jinja2Templates(directory="templates")
+
+# 업로드된 파일을 임시 저장할 디렉토리 생성
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 # --- <<<--- 3. 새로운 라우터 추가 ---
 @app.get("/audio_convert")
@@ -139,6 +154,7 @@ async def create_speaker_task(
         "params" : {        
             "video_path": str(video_path),
             "key": key,
+            "save_to_file": True,
             "model_name": model,
             "device": DEFAULT_DEVICE,
             "compute_type": DEFAULT_COMPUTE_TYPE,
@@ -161,9 +177,87 @@ async def create_speaker_task(
         "queue_size": job_queue.qsize(), # 현재 대기 중인 작업 수
     }
 
-@app.get("/")
-def read_root():
-    return {"message": "AI 속기록 생성 서버가 실행 중입니다."}
+# --- UI를 위한 새로운 엔드포인트들 ---
+@app.get("/", response_class=HTMLResponse)
+async def read_item(request: Request):
+    """메인 UI 페이지를 렌더링합니다."""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.post("/upload-and-process")
+async def upload_and_process_video(
+    file: UploadFile = File(...),
+    model: str = Form(...),
+    threshold: float = Form(...),
+    min_duration_off: float = Form(...),
+    min_speakers: int = Form(...),
+    max_speakers: int = Form(...)
+):
+    """파일 업로드와 파라미터를 받아 작업을 큐에 추가합니다."""
+    # 고유한 작업 키(key) 생성
+    key = str(uuid.uuid4())
+    
+    # 업로드된 파일을 서버에 저장
+    temp_path = UPLOAD_DIR / f"{key}_{file.filename}"
+    with temp_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    task_details = {
+        "task_name": "diarize",
+        "params": {
+            "video_path": str(temp_path),
+            "key": key,
+            "save_to_file":False,
+            "model_name": model,
+            "device": DEFAULT_DEVICE,
+            "compute_type": DEFAULT_COMPUTE_TYPE,
+            "diarization_params": {
+                "threshold": threshold,
+                "min_duration_off": min_duration_off,
+                "min_speakers": min_speakers,
+                "max_speakers": max_speakers
+            }
+        }
+    }
+    
+    # 작업 상태를 'processing'으로 초기화
+    job_results[key] = {"status": "processing", "data": None}
+    await job_queue.put(task_details)
+
+    return {
+        "status": "queued",
+        "message": "작업이 성공적으로 대기열에 추가되었습니다.",
+        "key": key
+    }
+    
+# --- <<<--- 3. UI용 새 라우터: 결과 확인 API 추가 ---
+@app.get("/job-result/{key}")
+async def get_job_result(key: str):
+    """UI가 폴링하여 작업 상태와 결과를 가져가는 API"""
+    result = job_results.get(key)
+    if not result:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return result
+# --- 여기까지 ---
+
+@app.get("/results/{key}/{file_type}")
+async def get_result_file(key: str, file_type: str):
+    """처리 완료된 결과 파일을 반환합니다. (폴링용)"""
+    if file_type not in ["txt", "vtt"]:
+        raise HTTPException(status_code=400, detail="Invalid file type.")
+    
+    # tasks.py에서 정의한 출력 파일명 규칙과 일치해야 함
+    # 예: "uploads/key_filename_whisper.txt"
+    # tasks.py의 경로 생성 로직과 일관성을 위해 파일명 포맷을 맞춰야 합니다.
+    # 여기서는 간단하게 key를 기반으로 파일을 찾습니다.
+    
+    # tasks.py의 출력 경로 생성 로직을 확인하고 일치시켜야 합니다.
+    # 여기서는 tasks.py가 UPLOAD_DIR에 결과를 저장한다고 가정합니다.
+    result_path = UPLOAD_DIR / f"{key}_whisper.{file_type}"
+    
+    if not result_path.is_file():
+        raise HTTPException(status_code=404, detail="Result file not found yet.")
+    
+    return FileResponse(result_path)
 
 if __name__ == "__main__":
     # 서버 실행: python main.py

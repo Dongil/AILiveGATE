@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 회의록 자동 생성</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI 회의록 자동 생성</h1>
+            <p>회의 영상을 업로드하면 화자를 분리하여 회의록과 자막을 생성합니다.</p>
+        </header>
+
+        <main>
+            <form id="uploadForm">
+                <div class="form-section file-drop-section">
+                    <div id="drop-area" class="drop-area">
+                        <input type="file" id="fileElem" accept="video/mp4, video/quicktime" required>
+                        <label class="file-label" for="fileElem">
+                            <svg class="upload-icon" ...> <!-- 아이콘 SVG --> </svg>                            
+                            <p id="drop-area-instruction">클릭하거나 파일을 이곳으로 드래그하세요</p>
+                            <span id="file-name-display">선택된 파일 없음</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-section params-section">
+                    <h2>처리 옵션</h2>
+                    <div class="param-group">
+                        <label for="model">Whisper 모델 (필수)</label>
+                        <select id="model" name="model" required>
+                            <option value="large-v3" selected>Large v3 (고품질)</option>
+                            <option value="large-v3-turbo">Large v3 (빠른속도)</option>
+                            <option value="large-v2">Large v2</option>
+                            <option value="large-v1">Large v1</option>
+                        </select>
+                    </div>
+                    <details class="param-group">
+                        <summary>화자 분리 미세 조정 (옵션)</summary>
+                        <div class="optional-params">
+                            <div>
+                                <label for="threshold">Threshold (0.0 ~ 2.0)</label>
+                                <input type="number" id="threshold" name="threshold" step="0.05" placeholder="기본값: 0.7">
+                            </div>
+                            <div>
+                                <label for="min_duration_off">Min Duration Off (s)</label>
+                                <input type="number" id="min_duration_off" name="min_duration_off" step="0.1" placeholder="기본값: 0.2">
+                            </div>
+                            <div>
+                                <label for="min_speakers">Min Speakers</label>
+                                <input type="number" id="min_speakers" name="min_speakers" min="1" placeholder="기본값: 2">
+                            </div>
+                            <div>
+                                <label for="max_speakers">Max Speakers</label>
+                                <input type="number" id="max_speakers" name="max_speakers" min="1" placeholder="기본값: 25">
+                            </div>
+                        </div>
+                    </details>
+                </div>
+                
+                <button type="submit" id="submitBtn" class="submit-btn">
+                    <span class="btn-text">회의록 생성 시작</span>
+                    <div class="spinner" style="display: none;"></div>
+                </button>
+            </form>
+
+            <div id="progress-container" class="progress-container" style="display: none;">
+                <div id="progress-bar" class="progress-bar"></div>
+                <span id="progress-text"></span>
+            </div>
+
+            <div id="results-container" class="results-container" style="display: none;">
+                <div id="status-message"></div>
+                <div id="result-view" style="display: none;">
+                    <div class="tabs">
+                        <button class="tab-btn active" data-target="txt">회의록 (TXT)</button>
+                        <button class="tab-btn" data-target="vtt">자막 (VTT)</button>
+                    </div>
+                    <pre id="result-content"></pre>
+                    <div class="download-links">
+                        <a id="download-txt" href="#" download>TXT 다운로드</a>
+                        <a id="download-vtt" href="#" download>VTT 다운로드</a>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
